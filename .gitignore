@@ -1,0 +1,31 @@
+# Build Directories
+bin/
+obj/
+
+# Rider
+.idea/
+
+# VS Code
+.vscode/
+
+# User-specific files
+*.user
+*.suo
+*.userprefs
+*.userosscache
+
+# NuGet packages
+*.nupkg
+packages/
+.nuget/
+
+# Logs and DB
+*.log
+*.sql
+
+# Enviroment
+.env
+
+# OS generated files
+Thumbs.db
+.DS_Store
