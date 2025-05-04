@@ -204,56 +204,39 @@ namespace MyChatGPTLauncher
 
         private static string FetchChatGPTResponse()
         {
-            // コンテナ要素 (ControlType.Document、LocalizedControlType="ドキュメント")
+            // HWND から AutomationElement を取得
             IntPtr hWnd = GetChatGPTWindowHandle();
-            if (hWnd == IntPtr.Zero) return string.Empty;
+            if (hWnd == IntPtr.Zero)
+                return string.Empty;
 
             var root = AutomationElement.FromHandle(hWnd);
-            if (root == null) return string.Empty;
+            if (root == null)
+                return string.Empty;
 
-            // Container を探す
-            var containerCondition = new AndCondition(
-                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Document),
-                new PropertyCondition(AutomationElement.LocalizedControlTypeProperty, "ドキュメント")
+            // 編集コントロール (ControlType.Edit, LocalizedControlType='編集') を取得し、最後の要素を選択
+            var editCondition = new AndCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                new PropertyCondition(AutomationElement.LocalizedControlTypeProperty, "編集")
             );
-            var containers = root.FindAll(TreeScope.Descendants, containerCondition);
-            if (containers == null || containers.Count == 0) return string.Empty;
-            var container = containers[containers.Count - 1];
+            var edits = root.FindAll(TreeScope.Descendants, editCondition);
+            if (edits == null || edits.Count == 0)
+                return string.Empty;
+            var container = edits[edits.Count - 1];
 
-            // Anchor を探し、その後の Text 要素を収集
-            var all = container.FindAll(TreeScope.Descendants, Condition.TrueCondition);
-            bool foundAnchor = false;
+            // コンテナ内のすべてのテキスト要素の Name を収集
+            var textElements = container.FindAll(
+                TreeScope.Descendants,
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Text)
+            );
             var lines = new List<string>();
-
-            foreach (AutomationElement el in all)
+            foreach (AutomationElement el in textElements)
             {
-                var ctr = el.Current;
-                // Anchor: ControlType.Text + Name=='ChatGPT:' + LocalizedControlType=='テキスト'
-                if (!foundAnchor &&
-                    ctr.ControlType == ControlType.Text &&
-                    ctr.Name == "ChatGPT:" &&
-                    ctr.LocalizedControlType == "テキスト")
-                {
-                    foundAnchor = true;
-                    continue;
-                }
-                if (foundAnchor)
-                {
-                    // 終了条件: ControlType.Button, LocalizedControlType=='ボタン'
-                    if (ctr.ControlType == ControlType.Button && ctr.LocalizedControlType == "ボタン")
-                        break;
-
-                    // 出力行の収集: ControlType.Text, LocalizedControlType=='テキスト'
-                    if (ctr.ControlType == ControlType.Text && ctr.LocalizedControlType == "テキスト")
-                    {
-                        var text = ctr.Name?.Trim();
-                        if (!string.IsNullOrEmpty(text))
-                            lines.Add(text);
-                    }
-                }
+                var txt = el.Current.Name?.Trim();
+                if (!string.IsNullOrEmpty(txt))
+                    lines.Add(txt);
             }
 
-            return lines.Count > 0 ? string.Join(Environment.NewLine, lines) : string.Empty;
+            return lines.Count > 0 ? string.Join(" ", lines) : string.Empty;
         }
         private static void FocusChatInput()
         {
@@ -329,6 +312,7 @@ namespace MyChatGPTLauncher
                 SendKeys.SendWait("^v");
                 Console.WriteLine($"[Debug] Paste ScreenShot");
             }
+            Thread.Sleep(5);
         }
         private static void DumpAutomationTree()
         {
@@ -356,61 +340,60 @@ namespace MyChatGPTLauncher
             Console.WriteLine($"Automation tree dumped to {path}");
         }
         private static void ExecuteCommand(string command)
-{
-    // 複数行のコマンドを個別に実行
-    var lines = command.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-    foreach (var line in lines)
-    {
-        var parts = line.Trim().Split(new[] { ' ' }, 2, StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0) continue;
-        var action = parts[0].ToLowerInvariant();
-        var args = parts.Length > 1 ? parts[1] : string.Empty;
-
-        try
         {
-            switch (action)
+            // コマンドと引数を抽出するパターン
+            var pattern = @"(?<action>open|type|enter|click|wait|screenshot|prompt)\s+(?<args>[^\r\n]+)";
+            var matches = Regex.Matches(command, pattern, RegexOptions.IgnoreCase);
+            foreach (Match m in matches)
             {
-                case "open":
-                    Process.Start(args);
-                    break;
-                case "type":
-                    SendKeys.SendWait(args);
-                    break;
-                case "enter":
-                    SendKeys.SendWait("{ENTER}");
-                    break;
-                case "click":
-                    var coords = args.Split(',');
-                    if (coords.Length == 2 &&
-                        int.TryParse(coords[0], out int x) &&
-                        int.TryParse(coords[1], out int y))
+                var action = m.Groups["action"].Value.ToLowerInvariant();
+                var args   = m.Groups["args"].Value.Trim();
+
+                try
+                {
+                    switch (action)
                     {
-                        SetCursorPos(x, y);
-                        mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)x, (uint)y, 0, UIntPtr.Zero);
-                        mouse_event(MOUSEEVENTF_LEFTUP, (uint)x, (uint)y, 0, UIntPtr.Zero);
+                        case "open":
+                            Process.Start(args);
+                            break;
+                        case "type":
+                            SendKeys.SendWait(args);
+                            break;
+                        case "enter":
+                            SendKeys.SendWait("{ENTER}");
+                            break;
+                        case "click":
+                            var parts = args.Split(',');
+                            if (parts.Length == 2 &&
+                                int.TryParse(parts[0], out int x) &&
+                                int.TryParse(parts[1], out int y))
+                            {
+                                SetCursorPos(x, y);
+                                mouse_event(MOUSEEVENTF_LEFTDOWN, (uint)x, (uint)y, 0, UIntPtr.Zero);
+                                mouse_event(MOUSEEVENTF_LEFTUP,   (uint)x, (uint)y, 0, UIntPtr.Zero);
+                            }
+                            break;
+                        case "wait":
+                            if (int.TryParse(args, out int ms)) Thread.Sleep(ms);
+                            break;
+                        case "screenshot":
+                            CaptureAndPasteScreenshot();
+                            break;
+                        case "prompt":
+                            FocusChatInput();
+                            SendKeys.SendWait(args);
+                            SendKeys.SendWait("{ENTER}");
+                            break;
+                        default:
+                            Console.WriteLine($"Unknown command: {action}");
+                            break;
                     }
-                    break;
-                case "wait":
-                    if (int.TryParse(args, out int ms)) Thread.Sleep(ms);
-                    break;
-                case "screenshot":
-                    CaptureAndPasteScreenshot();
-                    break;
-                case "prompt":
-                    FocusChatInput();
-                    SendKeys.SendWait(args);
-                    SendKeys.SendWait("{ENTER}");
-                    break;
-                default:
-                    Console.WriteLine($"Unknown command: {action}");
-                    break;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Command execution error ({action}): {ex.Message}");
+                }
             }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Command execution error ({action}): {ex.Message}");
-        }
-    }
-}
     }
 }
